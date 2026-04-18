@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "CommonJS",
+    "strict": false,
+    "moduleResolution": "Node",
+    "esModuleInterop": true,
+    "types": ["@playwright/test"]
+  },
+  "include": ["e2e/**/*.ts"]
+}
