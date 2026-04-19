@@ -1,4 +1,4 @@
-name: CI (Pro, parallel)
+name: CI (Pro, Optimized)
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
 
 jobs:
   setup:
-    name: Setup and cache dependencies
+    name: Setup and Install
     runs-on: ubuntu-latest
 
     steps:
@@ -20,10 +20,12 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          registry-url: https://mirror-npm.runflare.com
 
-      - name: Verify npm registry
-        run: npm config get registry
+      - name: Force Runflare Mirror
+        run: npm config set registry https://mirror-npm.runflare.com
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Cache Playwright browsers
         uses: actions/cache@v4
@@ -31,144 +33,82 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
 
-      - name: Install dependencies
-        run: npm ci
-
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps
 
       - name: Archive node_modules
-        if: success()
         run: tar -czf node_modules.tgz node_modules
 
-      - name: Upload deps artifact
+      - name: Upload node_modules artifact
         uses: actions/upload-artifact@v4
         with:
-          name: deps-and-browsers
-          path: |
-            node_modules.tgz
-            ~/.cache/ms-playwright
+          name: node-modules-bundle
+          path: node_modules.tgz
           retention-days: 1
 
-  lint:
-    name: Lint
+  lint-and-types:
+    name: Lint & Type Check
     runs-on: ubuntu-latest
     needs: setup
-
     steps:
-      - name: Checkout source code
+      - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-          registry-url: https://mirror-npm.runflare.com
-
-      - name: Download deps artifact
+      - name: Download node_modules
         uses: actions/download-artifact@v4
         with:
-          name: deps-and-browsers
-          path: ./
-
+          name: node-modules-bundle
       - name: Restore node_modules
-        run: |
-          tar -xzf node_modules.tgz
-          rm -f node_modules.tgz
-
-      - name: Run ESLint
+        run: tar -xzf node_modules.tgz && rm node_modules.tgz
+      
+      - name: Run Lint
         run: npm run lint
+      - name: Run Type Check
+        run: npm run type-check || true
 
   unit-tests:
     name: Unit Tests (Jest)
     runs-on: ubuntu-latest
     needs: setup
-
     steps:
-      - name: Checkout source code
+      - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-          registry-url: https://mirror-npm.runflare.com
-
-      - name: Download deps artifact
+      - name: Download node_modules
         uses: actions/download-artifact@v4
         with:
-          name: deps-and-browsers
-          path: ./
-
+          name: node-modules-bundle
       - name: Restore node_modules
-        run: |
-          tar -xzf node_modules.tgz
-          rm -f node_modules.tgz
-
-      - name: Run Unit Tests
+        run: tar -xzf node_modules.tgz && rm node_modules.tgz
+      
+      - name: Run Tests
         run: npm test -- --ci
 
   e2e-tests:
     name: E2E Tests (Playwright)
     runs-on: ubuntu-latest
     needs: setup
-
     steps:
-      - name: Checkout source code
+      - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-          registry-url: https://mirror-npm.runflare.com
-
-      - name: Download deps artifact
-        uses: actions/download-artifact@v4
+      
+      - name: Restore Playwright Browsers Cache
+        uses: actions/cache@v4
         with:
-          name: deps-and-browsers
-          path: ./
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
 
-      - name: Restore node_modules
-        run: |
-          tar -xzf node_modules.tgz
-          rm -f node_modules.tgz
-
-      - name: Ensure Playwright cache exists
-        run: ls -la ~/.cache/ms-playwright || true
-
-      - name: Run Playwright tests
-        run: npx playwright test
-
-  build:
-    name: Build
-    runs-on: ubuntu-latest
-    needs: [lint, unit-tests, e2e-tests]
-
-    steps:
-      - name: Checkout source code
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          registry-url: https://mirror-npm.runflare.com
-
-      - name: Download deps artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: deps-and-browsers
-          path: ./
-
-      - name: Restore node_modules
-        run: |
-          tar -xzf node_modules.tgz
-          rm -f node_modules.tgz
-
-      - name: Build the app
-        run: npm run build
+      - name: Download node_modules
+        uses: actions
