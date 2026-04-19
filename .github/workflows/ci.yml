@@ -37,10 +37,10 @@ jobs:
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps
 
-      # Save node_modules as a cache-like artifact for downstream jobs
       - name: Archive node_modules
         if: success()
         run: tar -czf node_modules.tgz node_modules
+
       - name: Upload deps artifact
         uses: actions/upload-artifact@v4
         with:
