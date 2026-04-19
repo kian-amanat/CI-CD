@@ -1,4 +1,4 @@
-name: CI
+name: CI (Pro, parallel)
 
 on:
   push:
@@ -7,7 +7,8 @@ on:
     branches: [ main ]
 
 jobs:
-  build:
+  setup:
+    name: Setup and cache dependencies
     runs-on: ubuntu-latest
 
     steps:
@@ -19,24 +20,155 @@ jobs:
         with:
           node-version: 20
           cache: npm
+          registry-url: https://mirror-npm.runflare.com
+
+      - name: Verify npm registry
+        run: npm config get registry
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Lint
-        run: npm run lint
-
-      - name: Type check
-        run: npm run type-check || true
-
-      - name: Run Unit Tests (Jest)
-        run: npm test
-
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps
 
-      - name: Run E2E Tests (Playwright)
+      # Save node_modules as a cache-like artifact for downstream jobs
+      - name: Archive node_modules
+        if: success()
+        run: tar -czf node_modules.tgz node_modules
+      - name: Upload deps artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deps-and-browsers
+          path: |
+            node_modules.tgz
+            ~/.cache/ms-playwright
+          retention-days: 1
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    needs: setup
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          registry-url: https://mirror-npm.runflare.com
+
+      - name: Download deps artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: deps-and-browsers
+          path: ./
+
+      - name: Restore node_modules
+        run: |
+          tar -xzf node_modules.tgz
+          rm -f node_modules.tgz
+
+      - name: Run ESLint
+        run: npm run lint
+
+  unit-tests:
+    name: Unit Tests (Jest)
+    runs-on: ubuntu-latest
+    needs: setup
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          registry-url: https://mirror-npm.runflare.com
+
+      - name: Download deps artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: deps-and-browsers
+          path: ./
+
+      - name: Restore node_modules
+        run: |
+          tar -xzf node_modules.tgz
+          rm -f node_modules.tgz
+
+      - name: Run Unit Tests
+        run: npm test -- --ci
+
+  e2e-tests:
+    name: E2E Tests (Playwright)
+    runs-on: ubuntu-latest
+    needs: setup
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          registry-url: https://mirror-npm.runflare.com
+
+      - name: Download deps artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: deps-and-browsers
+          path: ./
+
+      - name: Restore node_modules
+        run: |
+          tar -xzf node_modules.tgz
+          rm -f node_modules.tgz
+
+      - name: Ensure Playwright cache exists
+        run: ls -la ~/.cache/ms-playwright || true
+
+      - name: Run Playwright tests
         run: npx playwright test
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [lint, unit-tests, e2e-tests]
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          registry-url: https://mirror-npm.runflare.com
+
+      - name: Download deps artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: deps-and-browsers
+          path: ./
+
+      - name: Restore node_modules
+        run: |
+          tar -xzf node_modules.tgz
+          rm -f node_modules.tgz
 
       - name: Build the app
         run: npm run build
